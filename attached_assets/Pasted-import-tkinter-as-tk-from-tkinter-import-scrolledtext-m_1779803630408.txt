@@ -1,0 +1,238 @@
+import tkinter as tk
+from tkinter import scrolledtext, messagebox, simpledialog
+import socket
+import threading
+import json
+import hashlib
+
+class Messenger:
+    def __init__(self):
+        self.window = tk.Tk()
+        self.window.title("МЕССЕНДЖЕР")
+        self.window.geometry("950x650")
+        self.window.configure(bg='#1a1a2e')
+        
+        self.socket = None
+        self.username = ""
+        self.current_group = "Общий"
+        self.my_groups = ["Общий"]
+        self.group_messages = {"Общий": []}
+        
+        self.login_screen()
+        self.window.mainloop()
+    
+    def login_screen(self):
+        for w in self.window.winfo_children():
+            w.destroy()
+        
+        center = tk.Frame(self.window, bg='#1a1a2e')
+        center.place(relx=0.5, rely=0.5, anchor='center')
+        
+        tk.Label(center, text="💬 МЕССЕНДЖЕР", font=('Arial', 36, 'bold'),
+                bg='#1a1a2e', fg='#e94560').pack(pady=30)
+        
+        tk.Label(center, text="Имя пользователя", bg='#1a1a2e', fg='white', font=('Arial', 12)).pack()
+        self.name_entry = tk.Entry(center, font=('Arial', 14), bg='#16213e', fg='white', width=25, relief='flat')
+        self.name_entry.pack(pady=5)
+        
+        tk.Label(center, text="Пароль", bg='#1a1a2e', fg='white', font=('Arial', 12)).pack()
+        self.pass_entry = tk.Entry(center, font=('Arial', 14), bg='#16213e', fg='white', width=25, relief='flat', show="*")
+        self.pass_entry.pack(pady=5)
+        self.pass_entry.bind('<Return>', lambda e: self.do_login())
+        
+        btn_frame = tk.Frame(center, bg='#1a1a2e')
+        btn_frame.pack(pady=30)
+        
+        tk.Button(btn_frame, text="ВОЙТИ", command=self.do_login,
+                 bg='#e94560', fg='white', font=('Arial', 12, 'bold'), padx=30, pady=8, relief='flat').pack(side=tk.LEFT, padx=10)
+        
+        tk.Button(btn_frame, text="РЕГИСТРАЦИЯ", command=self.do_register,
+                 bg='#533483', fg='white', font=('Arial', 12, 'bold'), padx=30, pady=8, relief='flat').pack(side=tk.LEFT, padx=10)
+    
+    def do_login(self):
+        self.connect('login')
+    
+    def do_register(self):
+        self.connect('register')
+    
+    def connect(self, action):
+        username = self.name_entry.get().strip()
+        password = self.pass_entry.get().strip()
+        
+        if not username or not password:
+            messagebox.showerror("Ошибка", "Введите имя и пароль")
+            return
+        
+        try:
+            self.socket = socket.socket()
+            self.socket.settimeout(3)
+            self.socket.connect(('127.0.0.1', 5555))
+            
+            data = json.dumps({
+                'action': action,
+                'username': username,
+                'password': password
+            })
+            self.socket.send(data.encode())
+            
+            response = json.loads(self.socket.recv(4096).decode())
+            
+            if response['ok']:
+                self.username = username
+                self.socket.settimeout(None)
+                threading.Thread(target=self.receive_messages, daemon=True).start()
+                self.main_screen()
+            else:
+                messagebox.showerror("Ошибка", response['msg'])
+                self.socket.close()
+        
+        except socket.timeout:
+            messagebox.showerror("Ошибка", "Сервер не отвечает. Запустите server.py")
+        except ConnectionRefusedError:
+            messagebox.showerror("Ошибка", "Сервер не запущен")
+        except Exception as e:
+            messagebox.showerror("Ошибка", str(e))
+    
+    def receive_messages(self):
+        while True:
+            try:
+                data = self.socket.recv(4096).decode()
+                if not data:
+                    break
+                msg = json.loads(data)
+                
+                if msg['type'] == 'message':
+                    # Добавляем в историю текущей группы
+                    if self.current_group not in self.group_messages:
+                        self.group_messages[self.current_group] = []
+                    self.group_messages[self.current_group].append(f"[{msg['from']}]: {msg['text']}")
+                    self.add_message(f"[{msg['from']}]: {msg['text']}")
+                
+                elif msg['type'] == 'history':
+                    # История при вступлении в группу
+                    history_text = f"[{msg['from']}]: {msg['text']}"
+                    if self.current_group not in self.group_messages:
+                        self.group_messages[self.current_group] = []
+                    self.group_messages[self.current_group].append(history_text)
+                    self.add_message(history_text)
+            
+            except:
+                break
+    
+    def add_message(self, text):
+        self.chat_area.config(state=tk.NORMAL)
+        self.chat_area.insert(tk.END, text + "\n")
+        self.chat_area.see(tk.END)
+        self.chat_area.config(state=tk.DISABLED)
+    
+    def clear_chat(self):
+        self.chat_area.config(state=tk.NORMAL)
+        self.chat_area.delete(1.0, tk.END)
+        self.chat_area.config(state=tk.DISABLED)
+    
+    def load_group(self, group):
+        self.clear_chat()
+        if group in self.group_messages:
+            for msg in self.group_messages[group]:
+                self.add_message(msg)
+    
+    def main_screen(self):
+        for w in self.window.winfo_children():
+            w.destroy()
+        
+        # Верхняя панель
+        top = tk.Frame(self.window, bg='#16213e', height=50)
+        top.pack(fill=tk.X)
+        tk.Label(top, text=f"👤 {self.username}", bg='#16213e', fg='white', font=('Arial', 12)).pack(side=tk.LEFT, padx=20)
+        self.current_label = tk.Label(top, text=f"💬 {self.current_group}", bg='#16213e', fg='#e94560', font=('Arial', 12, 'bold'))
+        self.current_label.pack(side=tk.LEFT, padx=20)
+        
+        # Основная область
+        main = tk.Frame(self.window, bg='#1a1a2e')
+        main.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Левая панель
+        left = tk.Frame(main, bg='#16213e', width=220)
+        left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+        left.pack_propagate(False)
+        
+        tk.Label(left, text="ГРУППЫ", bg='#16213e', fg='white', font=('Arial', 12, 'bold')).pack(pady=10)
+        
+        self.groups_listbox = tk.Listbox(left, bg='#1a1a2e', fg='white', font=('Arial', 11), relief='flat')
+        self.groups_listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        self.groups_listbox.bind('<<ListboxSelect>>', self.switch_group)
+        
+        for g in self.my_groups:
+            self.groups_listbox.insert(tk.END, g)
+        
+        btn_create = tk.Button(left, text="+ СОЗДАТЬ ГРУППУ", command=self.create_group,
+                              bg='#e94560', fg='white', font=('Arial', 10, 'bold'), relief='flat')
+        btn_create.pack(fill=tk.X, padx=10, pady=5)
+        
+        btn_join = tk.Button(left, text="🔓 ВСТУПИТЬ", command=self.join_group,
+                            bg='#533483', fg='white', font=('Arial', 10, 'bold'), relief='flat')
+        btn_join.pack(fill=tk.X, padx=10, pady=5)
+        
+        # Чат
+        right = tk.Frame(main, bg='#1a1a2e')
+        right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        
+        self.chat_area = scrolledtext.ScrolledText(right, wrap=tk.WORD, font=('Arial', 11),
+                                                    bg='#16213e', fg='white', insertbackground='white', relief='flat')
+        self.chat_area.pack(fill=tk.BOTH, expand=True)
+        self.chat_area.config(state=tk.DISABLED)
+        
+        # Панель ввода
+        bottom = tk.Frame(right, bg='#1a1a2e', height=60)
+        bottom.pack(fill=tk.X, pady=(10, 0))
+        
+        self.message_entry = tk.Entry(bottom, font=('Arial', 12), bg='#16213e', fg='white', relief='flat')
+        self.message_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        self.message_entry.bind('<Return>', lambda e: self.send_message())
+        
+        send_btn = tk.Button(bottom, text="ОТПРАВИТЬ", command=self.send_message,
+                            bg='#e94560', fg='white', font=('Arial', 12, 'bold'), padx=20, relief='flat')
+        send_btn.pack(side=tk.RIGHT)
+        
+        self.load_group(self.current_group)
+    
+    def switch_group(self, event):
+        selection = self.groups_listbox.curselection()
+        if selection:
+            self.current_group = self.groups_listbox.get(selection[0])
+            self.current_label.config(text=f"💬 {self.current_group}")
+            self.load_group(self.current_group)
+    
+    def create_group(self):
+        name = simpledialog.askstring("Создать группу", "Название группы:")
+        if name and name not in self.my_groups and name != "Общий":
+            self.my_groups.append(name)
+            self.groups_listbox.insert(tk.END, name)
+            self.group_messages[name] = []
+            self.socket.send(json.dumps({'type': 'create', 'name': name}).encode())
+    
+    def join_group(self):
+        name = simpledialog.askstring("Вступить в группу", "Название группы:")
+        if name and name not in self.my_groups and name != "Общий":
+            self.my_groups.append(name)
+            self.groups_listbox.insert(tk.END, name)
+            self.group_messages[name] = []
+            self.socket.send(json.dumps({'type': 'join', 'name': name}).encode())
+    
+    def send_message(self):
+        text = self.message_entry.get().strip()
+        if text:
+            if self.current_group not in self.group_messages:
+                self.group_messages[self.current_group] = []
+            self.group_messages[self.current_group].append(f"[Я]: {text}")
+            self.add_message(f"[Я]: {text}")
+            
+            self.socket.send(json.dumps({
+                'type': 'send',
+                'group': self.current_group,
+                'text': text
+            }).encode())
+            self.message_entry.delete(0, tk.END)
+
+if __name__ == "__main__":
+    Messenger()
