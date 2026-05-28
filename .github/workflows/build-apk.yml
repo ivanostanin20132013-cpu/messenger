@@ -1,34 +1,20 @@
-name: Build Messenger APK
-
-on:
-  push:
-    branches: [ main ]
-
+name: Build APK
+on: push
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      - name: 📦 Install dependencies
-run: |
-  rm -f package-lock.json yarn.lock
-  npm install --legacy-peer-deps
-
-      - name: 🔧 Setup Expo and EAS
+      - name: Install dependencies
         run: |
-          npm install -g eas-cli
-          eas login --token ${{ secrets.EXPO_TOKEN }}
-
-      - name: 🚀 Build APK
-        run: eas build --platform android --non-interactive --no-wait
-
-      - name: ⬆️ Upload APK
-        uses: actions/upload-artifact@v4
+          rm -f package-lock.json yarn.lock
+          npm install --legacy-peer-deps
+      - name: Build APK
+        run: npx expo export --platform android
+      - uses: actions/upload-artifact@v4
         with:
           name: messenger-apk
-          path: build-*.apk
+          path: dist
