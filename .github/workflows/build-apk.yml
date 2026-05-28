@@ -9,9 +9,11 @@ jobs:
         with:
           node-version: 20
       - name: Install dependencies
-        run: |
-          rm -f package-lock.json yarn.lock
-          npm install --legacy-peer-deps
+- name: Install dependencies
+  run: |
+    npm config set registry https://registry.npmmirror.com
+    rm -f package-lock.json yarn.lock
+    npm install --legacy-peer-deps
       - name: Build APK
         run: npx expo export --platform android
       - uses: actions/upload-artifact@v4
